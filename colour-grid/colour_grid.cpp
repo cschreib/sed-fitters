@@ -1,4 +1,4 @@
-#include "colour_cube.hpp"
+#include "colour_grid.hpp"
 #include "catalog_fitter.hpp"
 
 int vif_main(int argc, char* argv[]) {

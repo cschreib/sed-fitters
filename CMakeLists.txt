@@ -97,6 +97,6 @@ ExternalProject_Add(colour_grid
 install(PROGRAMS
     ${CMAKE_BINARY_DIR}/bin/eazy
     ${CMAKE_BINARY_DIR}/bin/bpz
-    ${CMAKE_BINARY_DIR}/bin/colour_grid
-    ${CMAKE_BINARY_DIR}/bin/make_colour_grid
+    ${CMAKE_BINARY_DIR}/bin/colour-grid
+    ${CMAKE_BINARY_DIR}/bin/make-colour-grid
     DESTINATION bin COMPONENT runtime)
