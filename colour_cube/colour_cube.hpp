@@ -262,7 +262,7 @@ public :
 
                 cube_psfs(_,im) = m;
 
-                progress(pg);
+                progress(pg, 13);
             }
         }
 
@@ -295,7 +295,7 @@ public :
 
                 model_sed(im,_) = osed;
 
-                progress(pg);
+                progress(pg, 13);
             }
         }
 

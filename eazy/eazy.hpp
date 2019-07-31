@@ -984,7 +984,7 @@ public :
                         model_sed(im,_) = bsed;
                     }
 
-                    progress(pg);
+                    progress(pg, 13);
                 }
             }
         }

@@ -708,8 +708,7 @@ public :
                         model_sed(im,_) = bsed;
                     }
 
-                    // TODO: compute SED
-                    progress(pg);
+                    progress(pg, 113);
                 }
             }
         }
