@@ -96,10 +96,17 @@ struct psf_moments {
             q22[i]  = sed2flux(f.lam, f.res*lib.q22, tlam, tsed)/ftot[i];
             rlam[i] = sed2flux(f.lam, f.res*f.lam,   tlam, tsed)/ftot[i];
 
-            vif_check(is_finite(ftot[i]) && ftot[i] > 0, "invalid total flux for PSF ", i);
-            vif_check(is_finite(q11[i])  && q11[i] > 0,  "invalid Q11 for PSF ", i);
-            vif_check(is_finite(q12[i]),                 "invalid Q12 for PSF ", i);
-            vif_check(is_finite(q22[i])  && q22[i] > 0,  "invalid Q22 for PSF ", i);
+            if (ftot[i] == 0.0) {
+                q11[i] = median(lib.q11);
+                q12[i] = median(lib.q12);
+                q22[i] = median(lib.q22);
+                rlam[i] = median(f.lam);
+            }
+
+            vif_check(is_finite(ftot[i]), "invalid total flux for PSF ", i);
+            vif_check(is_finite(q11[i]),  "invalid Q11 for PSF ", i);
+            vif_check(is_finite(q12[i]),  "invalid Q12 for PSF ", i);
+            vif_check(is_finite(q22[i]),  "invalid Q22 for PSF ", i);
         }
     }
 
@@ -125,12 +132,19 @@ struct psf_moments {
                 rlam.safe[i] += (s.safe[l]*f.lam.safe[l]   + s.safe[l-1]*f.lam.safe[l-1]);
             }
 
-            q11[i] /= ftot[i]; q12[i] /= ftot[i]; q22[i] /= ftot[i]; rlam[i] /= ftot[i];
+            if (ftot[i] == 0.0) {
+                q11[i] = median(lib.q11);
+                q12[i] = median(lib.q12);
+                q22[i] = median(lib.q22);
+                rlam[i] = median(f.lam);
+            } else {
+                q11[i] /= ftot[i]; q12[i] /= ftot[i]; q22[i] /= ftot[i]; rlam[i] /= ftot[i];
+            }
 
-            vif_check(is_finite(ftot[i]) && ftot[i] > 0, "invalid total flux for PSF ", i);
-            vif_check(is_finite(q11[i])  && q11[i] > 0,  "invalid Q11 for PSF ", i);
-            vif_check(is_finite(q12[i]),                 "invalid Q12 for PSF ", i);
-            vif_check(is_finite(q22[i])  && q22[i] > 0,  "invalid Q22 for PSF ", i);
+            vif_check(is_finite(ftot[i]), "invalid total flux for PSF ", i);
+            vif_check(is_finite(q11[i]),  "invalid Q11 for PSF ", i);
+            vif_check(is_finite(q12[i]),  "invalid Q12 for PSF ", i);
+            vif_check(is_finite(q22[i]),  "invalid Q22 for PSF ", i);
         }
     }
 
