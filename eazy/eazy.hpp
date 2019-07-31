@@ -30,10 +30,6 @@ public :
     // EAzY PSF library
     vec<2,metrics> eazy_psfs; // [npsf,nsed]
 
-    // EAzY SEDs
-    vec3f save_sed_eazy_fluxes; // [ntemplate,nzfit,nlam]
-    vec1f save_sed_lambda;      // [nlam]
-
     // Fit models
     vec1s eazy_seds;
     vec1d zfit;
@@ -48,6 +44,7 @@ public :
     vec2d prior_table;      // [nmag,nzfit]
     vec2d tpl_flux;         // [nmodel,nband]
     vec2d tpl_err;          // [nzfit,nband]
+    vec2d model_sed;        // [nmodel,nlsed]
 
     // Internal variables (used by each galaxy)
     struct workspace {
@@ -79,7 +76,6 @@ public :
     uint_t ihew = npos;
     uint_t limited_set = 0;
     double fit_tftol = 1e-4;
-    bool save_seds = false;
     std::string sed_dir;
     double rel_err = dnan;
 
@@ -118,7 +114,7 @@ public :
             fopts.use_noline_library, fopts.use_egg_library, fopts.use_eggpp_library,
             fopts.egg_sed_step, fopts.limited_set,
             fopts.add_high_ew_template, fopts.egg_sed_borders, fopts.egg_sed_add_center,
-            fopts.sed_dir, save_seds, fopts.min_mag_err
+            fopts.sed_dir, fopts.min_mag_err
         ));
 
         if (fopts.use_eggpp_library) {
@@ -167,12 +163,6 @@ public :
         // Setup redshift grid
         nzfit = ceil(fopts.zfit_max/fopts.zfit_dz);
         zfit = fopts.zfit_dz*indgen<double>(nzfit);
-
-        if (save_seds) {
-            // TODO: save seds
-            // file::mkdir("seds/");
-            // save_sed_lambda = rgen_step(0.1,2.0,0.001);
-        }
 
         // Setup EAzY library
         make_sed_library(fopts);
@@ -371,12 +361,6 @@ public :
         matrix::mat2d alpha(ntemplate, ntemplate);
         vec1d beta(ntemplate);
         vec1d tcoefs(ntemplate);
-
-        // TODO: save seds
-        // vec2f osed;
-        // if (save_seds) {
-        //     osed.resize(nmc, save_sed_lambda.size());
-        // }
 
         // Find best SED and z, and store chi2 to build p(z,SED)
         fr.chi2 = finf;
@@ -639,58 +623,12 @@ public :
             tprob += w.pz.safe[iz];
         }
 
-        // Compute marginalized redshift and apply p(z) to stored SED coefficients
+        // Compute marginalized redshift
         // NB: needs to be in a separate 'iz' loop than above, because need 'tprob'
         for (uint_t iz : range(nzfit)) {
             w.pz.safe[iz] /= tprob;
             fr.z_obsm += zfit.safe[iz]*w.pz.safe[iz];
-
-            for (uint_t it : range(nsed)) {
-                uint_t im = iz*nsed + it;
-                w.z_coefs.safe[im] *= w.pz.safe[iz];
-            }
         }
-
-        // TODO: save SED
-        // if (keep_individuals_in_memory && indiv_save_coefs) {
-        //     if (limited_set > 0) {
-        //         // Only store the non-zero coefs and SEDs (saves space)
-        //         uint_t inz = 0;
-        //         for (uint_t it : range(nsed)) {
-        //             while (inz < ntemplate && w.best_coefs.safe(i,inz) == 0.0) {
-        //                 ++inz;
-        //             }
-
-        //             if (inz == ntemplate) {
-        //                 // Fewer templates used than maximum, set rest to zero
-        //                 indiv_seds(iter,i,it)       = 0;
-        //                 indiv_coefs.safe(iter,i,it) = 0.0;
-        //             } else {
-        //                 // Found template
-        //                 indiv_seds(iter,i,it)       = inz;
-        //                 indiv_coefs.safe(iter,i,it) = w.best_coefs.safe(i,inz);
-        //                 ++inz;
-        //             }
-        //         }
-        //     } else {
-        //         // Store all coefs
-        //         for (uint_t it : range(ntemplate)) {
-        //             indiv_coefs.safe(iter,i,it) = w.best_coefs.safe(i,it);
-        //         }
-        //     }
-        // }
-
-        // if (save_seds) {
-        //     uint_t iz = best_z.safe[i];
-        //     for (uint_t it : range(ntemplate)) {
-        //         double c = w.best_coefs.safe(i,it);
-        //         if (c > 0.0) {
-        //             for (uint_t il : range(save_sed_lambda)) {
-        //                 osed.safe(i,il) += c*save_sed_eazy_fluxes.safe(it,iz,il);
-        //             }
-        //         }
-        //     }
-        // }
 
         // Compute PSFs
         if (!no_psf) {
@@ -718,7 +656,6 @@ public :
             for (uint_t ip : range(psfs)) {
                 // Compute flux-weighted moments for this model
                 metrics& m = fr.psf_obsm.safe[ip];
-                double wz = 0.0;
                 for (uint_t iz : range(nzfit)) {
                     // Compute the best SED at this redshift
                     metrics tm;
@@ -747,19 +684,50 @@ public :
                     tm.get_ellipticities();
 
                     // Average all redshifts
-                    m += tm*wtot;
-                    wz += wtot;
+                    m += tm*w.pz.safe[iz];
                 }
-
-                m /= wz;
             }
         }
 
-        // Save SEDs
-        // TODO: save seds
-        // if (save_seds) {
-        //     fits::update_table("seds/sed_"+to_string(iter)+".fits", "sed_obs", osed);
-        // }
+        // Compute SEDs
+        if (save_sed) {
+            // Maximum likelihood
+            fr.sed_obs.resize(model_sed.dims[1]);
+            for (uint_t it : range(ntemplate)) {
+                uint_t im = best_z*ntemplate + it;
+                double c = w.best_coefs.safe[it];
+                if (c > 0.0) {
+                    for (uint_t il : range(model_sed.dims[1])) {
+                        fr.sed_obs.safe[il] += c*model_sed.safe(im,il);
+                    }
+                }
+            }
+
+            // Marginalized
+            fr.sed_obsm.resize(model_sed.dims[1]);
+            for (uint_t iz : range(nzfit)) {
+                if (limited_set > 0) {
+                    for (uint_t it : range(nsed)) {
+                        uint_t imm = iz*nsed      + it;
+                        uint_t im  = iz*ntemplate + w.z_seds.safe[imm];
+
+                        double c = w.z_coefs.safe[imm]*w.pz.safe[iz];
+                        for (uint_t il : range(model_sed.dims[1])) {
+                            fr.sed_obsm.safe[il] += c*model_sed.safe(im,il);
+                        }
+                    }
+                } else {
+                    for (uint_t it : range(ntemplate)) {
+                        uint_t im = iz*ntemplate + it;
+
+                        double c = w.z_coefs.safe[im]*w.pz.safe[iz];
+                        for (uint_t il : range(model_sed.dims[1])) {
+                            fr.sed_obsm.safe[il] += c*model_sed.safe(im,il);
+                        }
+                    }
+                }
+            }
+        }
 
         return fr;
     }
@@ -929,7 +897,7 @@ public :
     void prepare_fit() override {
         // Pre-compute EAzY template fluxes and PSF moments
         bool compute_moments = false;
-        if (!no_psf) {
+        if (!no_psf && eazy_psfs.empty()) {
             eazy_psfs.resize(psfs.size(), nmodel);
             compute_moments = true;
         }
@@ -940,7 +908,13 @@ public :
             compute_fluxes = true;
         }
 
-        if (compute_moments || compute_fluxes || save_seds) {
+        bool compute_seds = false;
+        if (save_sed && model_sed.empty()) {
+            model_sed.resize(nmodel, save_sed_lambda.size());
+            compute_seds = true;
+        }
+
+        if (compute_moments || compute_fluxes || compute_seds) {
             note("pre-computing model fluxes");
             auto pg = progress_start(ntemplate*nzfit);
             for (uint_t it : range(ntemplate)) {
@@ -949,6 +923,8 @@ public :
                 rsed *= 1e-19;
 
                 for (uint_t iz : range(nzfit)) {
+                    uint_t im = iz*ntemplate+it;
+
                     // Apply IGM absorption
                     vec1d olam = rlam*(1.0 + zfit[iz]);
                     vec1d osed = rsed;
@@ -962,6 +938,9 @@ public :
 
                     // Normalize all templates to unit flux at 5500A rest-frame (NB: as in EAzY)
                     osed /= interpolate(osed, rlam, 5500.0);
+
+                    vif_check(count(!is_finite(osed)) == 0, "SED ", it, " at redshift ", iz, " has invalid data");
+                    vif_check(count(osed != 0.0) != 0, "SED ", it, " at redshift ", iz, " is zero");
 
                     if (compute_fluxes) {
                         // Compute model fluxes
@@ -982,14 +961,28 @@ public :
                         eazy_psfs(_,iz*ntemplate+it) = m;
                     }
 
-                    // TODO: save seds
-                    // if (save_seds) {
-                    //     if (save_sed_eazy_fluxes.empty()) {
-                    //         save_sed_eazy_fluxes.resize(ntemplate,nzfit,save_sed_lambda.size());
-                    //     }
+                    if (compute_seds) {
+                        // Compute SEDs are requested resolution
+                        // (assume zero outside of model coverage)
+                        vec1u idi = where(save_sed_lambda >= min(olam) &&
+                                          save_sed_lambda <= max(olam));
 
-                    //     save_sed_eazy_fluxes(it,iz,_) = resample_sed(osed, olam, save_sed_lambda);
-                    // }
+                        vec1d slam = save_sed_lambda[idi];
+                        vec1d bsed(save_sed_lambda.size());
+                        if (sed_interp_method == "cst") {
+                            bsed[idi] = rebin_cst(osed, olam, slam);
+                        } else if (sed_interp_method == "lin") {
+                            bsed[idi] = rebin_trapz(osed, olam, slam);
+                        } else if (sed_interp_method == "spline") {
+                            bsed[idi] = rebin_spline3(osed, olam, slam);
+                        } else if (sed_interp_method == "mcspline") {
+                            bsed[idi] = rebin_mcspline(osed, olam, slam);
+                        }
+
+                        vif_check(count(!is_finite(bsed)) == 0, "re-sampled SED ", im, " has invalid data");
+
+                        model_sed(im,_) = bsed;
+                    }
 
                     progress(pg);
                 }

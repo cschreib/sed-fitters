@@ -15,7 +15,6 @@ public :
     fitter_base& fitter;
     uint_t npsf = 0;
     bool save_sed = false;
-    uint_t sed_npt = 0;
     double min_mag_err = 0.01;
     std::string catalog;
     std::string out;
@@ -32,7 +31,7 @@ public :
         vec1f depths;
         vec1s psf_files;
         opts.read(arg_list(
-            min_mag_err, catalog, out, bands, psf_files, depths, nthread, save_sed, sed_npt
+            min_mag_err, catalog, out, bands, psf_files, depths, nthread, save_sed
         ));
 
         npsf = psf_files.size();
@@ -121,8 +120,10 @@ public :
             otbl.allocate_column<float>("z_obsm",   ngal);
 
             if (save_sed) {
+                uint_t sed_npt = fitter.save_sed_lambda.size();
                 otbl.allocate_column<float>("sed_obs",  ngal, sed_npt);
                 otbl.allocate_column<float>("sed_obsm", ngal, sed_npt);
+                otbl.write_column("sed_lambda", fitter.save_sed_lambda);
             }
 
             if (npsf != 0) {

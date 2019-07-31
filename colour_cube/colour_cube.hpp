@@ -2,7 +2,6 @@
 #define COLOUR_CUBE_INCLUDED
 
 #include "fitter_base.hpp"
-#include "rebin.hpp"
 #include "common.hpp"
 
 struct fitter_options {
@@ -25,11 +24,13 @@ public :
     vec1d cube_lambda;       // [nlam]
 
     // Internal variables (used by all galaxies)
-    vec2d tpl_flux;
+    vec2d tpl_flux;          // [nmodel,nband]
+    vec2d model_sed;         // [nmodel,nlsed]
 
     // Internal variables (used by each galaxy)
     struct workspace {
         vec1d pmodel;
+        vec1d nmodel;
         vec1d pz, pzc;
 
         vec1d wflux, weight, wmodel;
@@ -78,6 +79,10 @@ public :
 
         // Interpolation method to use when re-constructing high-resolution SED
         interp_method = fopts.interp_method;
+
+        vif_check(is_any_of(interp_method, vec1s{"cst", "lin", "spline", "mcspline"}),
+            "'sed_interp_method' must be one of 'cst', 'lin', 'spline', or 'mcspline' (got ",
+            sed_interp_method, ")");
 
         // Build colour_cube library
         make_sed_library();
@@ -140,6 +145,7 @@ public :
             // Compute max likelihood scaling factor and chi2
             double scale = wfm/wmm;
             double tchi2 = wff - scale*wfm;
+            w.nmodel.safe[im] = scale;
 
             // Compare and store
             w.pmodel.safe[im] = tchi2;
@@ -182,13 +188,26 @@ public :
         }
 
         // Compute SEDs
-        // TODO: save SED
+        if (save_sed) {
+            // Maximum likelihood
+            fr.sed_obs = model_sed(iml,_)*w.nmodel[iml];
+
+            // Marginalization
+            fr.sed_obsm.resize(model_sed.dims[1]);
+            for (uint_t im : range(nmodel)) {
+                double tnorm = w.pmodel.safe[im]*w.nmodel.safe[im];
+                for (uint_t il : range(fr.sed_obsm)) {
+                    fr.sed_obsm.safe[il] += tnorm*model_sed.safe(im,il);
+                }
+            }
+        }
 
         return fr;
     }
 
     void reset_workspace(workspace& w) {
         w.pmodel.resize(nmodel);
+        w.nmodel.resize(nmodel);
 
         w.wflux.resize(nband);
         w.weight.resize(nband);
@@ -196,15 +215,21 @@ public :
     }
 
     void prepare_fit() override {
-        // Pre-compute colour_cube template fluxes and PSF moments
+        // Pre-compute colour_cube PSF moments and SEDs, on request
         bool compute_moments = false;
-        if (!no_psf) {
+        if (!no_psf && cube_psfs.empty()) {
             cube_psfs.resize(psfs.size(), nmodel);
             compute_moments = true;
         }
 
+        bool compute_seds = false;
+        if (save_sed && model_sed.empty()) {
+            model_sed.resize(nmodel, save_sed_lambda.size());
+            compute_seds = true;
+        }
+
         if (compute_moments) {
-            note("pre-computing model fluxes");
+            note("pre-computing PSF moments");
             vec1d olam = psfs.libraries[0].lam;
 
             auto pg = progress_start(nmodel);
@@ -237,7 +262,38 @@ public :
 
                 cube_psfs(_,im) = m;
 
-                // TODO: compute SED
+                progress(pg);
+            }
+        }
+
+        if (compute_seds) {
+            note("pre-computing model SEDs");
+            auto pg = progress_start(nmodel);
+            for (uint_t im : range(nmodel)) {
+                // Interpolate to requested res
+                vec1d bsed = cube_flux(im,_);
+
+                vif_check(count(!is_finite(bsed)) == 0, "SED ", im, " has invalid data");
+                vif_check(count(bsed != 0.0) != 0, "SED ", im, " is zero");
+
+                vec1u idi = where(save_sed_lambda >= min(cube_lambda) &&
+                                  save_sed_lambda <= max(cube_lambda));
+
+                vec1d slam = save_sed_lambda[idi];
+                vec1d osed(save_sed_lambda.size());
+                if (sed_interp_method == "cst") {
+                    osed[idi] = rebin_cst(bsed, cube_lambda, slam);
+                } else if (sed_interp_method == "lin") {
+                    osed[idi] = rebin_trapz(bsed, cube_lambda, slam);
+                } else if (sed_interp_method == "spline") {
+                    osed[idi] = rebin_spline3(bsed, cube_lambda, slam);
+                } else if (sed_interp_method == "mcspline") {
+                    osed[idi] = rebin_mcspline(bsed, cube_lambda, slam);
+                }
+
+                vif_check(count(!is_finite(osed)) == 0, "re-sampled SED ", im, " has invalid data");
+
+                model_sed(im,_) = osed;
 
                 progress(pg);
             }

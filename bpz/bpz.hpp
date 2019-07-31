@@ -35,11 +35,13 @@ public :
     uint_t nirregular = npos;
 
     // Internal variables (used by all galaxies)
-    vec2d tpl_flux;
+    vec2d tpl_flux;          // [nmodel,nband]
+    vec2d model_sed;         // [nmodel,nlsed]
 
     // Internal variables (used by each galaxy)
     struct workspace {
         vec1d pmodel;
+        vec1d nmodel;
         vec1d prior;
         vec1d tt_prior;
         vec1d pz, pzc;
@@ -469,6 +471,7 @@ public :
             // Compute max likelihood scaling factor and chi2
             double scale = wfm/wmm;
             double tchi2 = wff - scale*wfm;
+            w.nmodel.safe[im] = scale;
 
             // Compare and store
             w.pmodel.safe[im] = tchi2;
@@ -550,7 +553,19 @@ public :
         }
 
         // Compute SEDs
-        // TODO: save SED
+        if (save_sed) {
+            // Maximum likelihood
+            fr.sed_obs = model_sed(iml,_)*w.nmodel[iml];
+
+            // Marginalization
+            fr.sed_obsm.resize(model_sed.dims[1]);
+            for (uint_t im : range(nmodel)) {
+                double tnorm = w.pmodel.safe[im]*w.nmodel.safe[im];
+                for (uint_t il : range(fr.sed_obsm)) {
+                    fr.sed_obsm.safe[il] += tnorm*model_sed.safe(im,il);
+                }
+            }
+        }
 
         return fr;
     }
@@ -594,6 +609,7 @@ public :
 
     void reset_workspace(workspace& w) {
         w.pmodel.resize(nmodel);
+        w.nmodel.resize(nmodel);
         w.prior.resize(nmodel);
         w.tt_prior.resize(nzfit*3);
         w.pz.resize(nzfit);
@@ -622,6 +638,12 @@ public :
             compute_fluxes = true;
         }
 
+        bool compute_seds = false;
+        if (save_sed && model_sed.empty()) {
+            model_sed.resize(nmodel, save_sed_lambda.size());
+            compute_seds = true;
+        }
+
         if (compute_moments || compute_fluxes) {
             note("pre-computing model fluxes");
             auto pg = progress_start(ntemplate*nzfit);
@@ -631,6 +653,8 @@ public :
                 rsed *= 1e-19;
 
                 for (uint_t iz : range(nzfit)) {
+                    uint_t im = iz*ntemplate+it;
+
                     // Apply IGM absorption
                     vec1d olam = rlam*(1.0 + zfit[iz]);
                     vec1d osed = rsed;
@@ -658,7 +682,30 @@ public :
                         // Compute PSF moments
                         vec<1,metrics> m;
                         psfs.get_moments(olam, osed, m);
-                        bpz_psfs(_,iz*ntemplate+it) = m;
+                        bpz_psfs(_,im) = m;
+                    }
+
+                    if (compute_seds) {
+                        // Compute SEDs are requested resolution
+                        // (assume zero outside of model coverage)
+                        vec1u idi = where(save_sed_lambda >= min(olam) &&
+                                          save_sed_lambda <= max(olam));
+
+                        vec1d slam = save_sed_lambda[idi];
+                        vec1d bsed(save_sed_lambda.size());
+                        if (sed_interp_method == "cst") {
+                            bsed[idi] = rebin_cst(osed, olam, slam);
+                        } else if (sed_interp_method == "lin") {
+                            bsed[idi] = rebin_trapz(osed, olam, slam);
+                        } else if (sed_interp_method == "spline") {
+                            bsed[idi] = rebin_spline3(osed, olam, slam);
+                        } else if (sed_interp_method == "mcspline") {
+                            bsed[idi] = rebin_mcspline(osed, olam, slam);
+                        }
+
+                        vif_check(count(!is_finite(bsed)) == 0, "re-sampled SED ", im, " has invalid data");
+
+                        model_sed(im,_) = bsed;
                     }
 
                     // TODO: compute SED

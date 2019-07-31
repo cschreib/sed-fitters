@@ -5,6 +5,7 @@
 #include "filters.hpp"
 #include "psf_moments.hpp"
 #include "metrics.hpp"
+#include "rebin.hpp"
 
 using namespace vif;
 using namespace vif::astro;
@@ -29,6 +30,8 @@ public :
     bool multi_threaded = false;
     bool no_psf = false;
     bool save_sed = false;
+    std::string sed_interp_method = "cst";
+    vec1d save_sed_lambda;
 
     explicit fitter_base(filter_database& db, psf_moments& pm) : filter_db(db), psfs(pm) {}
 
@@ -38,10 +41,24 @@ public :
         uint_t nthread = 0;
         vec1f depths;
         vec1s psf_files;
+        double sed_lmin = 0.45;
+        double sed_lmax = 0.95;
+        double sed_step = 0.01;
 
         opts.read(arg_list(
-            bands, nthread, psf_files, depths, save_sed
+            bands, nthread, psf_files, depths, save_sed, sed_lmin, sed_lmax, sed_step,
+            sed_interp_method
         ));
+
+        // Setup SED grid for saving SEDs
+        if (save_sed) {
+            uint_t npt = floor((sed_lmax-sed_lmin)/sed_step) + 1;
+            save_sed_lambda = sed_step*indgen<double>(npt) + sed_lmin;
+
+            vif_check(is_any_of(sed_interp_method, vec1s{"cst", "lin", "spline", "mcspline"}),
+                "'sed_interp_method' must be one of 'cst', 'lin', 'spline', or 'mcspline' (got ",
+                sed_interp_method, ")");
+        }
 
         no_psf = psf_files.empty();
 
