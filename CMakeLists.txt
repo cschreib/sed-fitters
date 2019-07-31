@@ -80,10 +80,10 @@ ExternalProject_Add(bpz
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
 
-# Configure and build ColourCube
-ExternalProject_Add(colour_cube
+# Configure and build ColourGrid
+ExternalProject_Add(colour_grid
     DEPENDS vif
-    SOURCE_DIR ${PROJECT_SOURCE_DIR}/colour_cube
+    SOURCE_DIR ${PROJECT_SOURCE_DIR}/colour-grid
     CMAKE_ARGS
         -DCFITSIO_ROOT_DIR=${PROJECT_SOURCE_DIR}/external
         -DVIF_ROOT_DIR=${PROJECT_SOURCE_DIR}/external
@@ -97,6 +97,6 @@ ExternalProject_Add(colour_cube
 install(PROGRAMS
     ${CMAKE_BINARY_DIR}/bin/eazy
     ${CMAKE_BINARY_DIR}/bin/bpz
-    ${CMAKE_BINARY_DIR}/bin/colour_cube
-    ${CMAKE_BINARY_DIR}/bin/make_colour_cube
+    ${CMAKE_BINARY_DIR}/bin/colour_grid
+    ${CMAKE_BINARY_DIR}/bin/make_colour_grid
     DESTINATION bin COMPONENT runtime)
