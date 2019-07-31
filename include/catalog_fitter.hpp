@@ -64,9 +64,15 @@ public :
         ngal = ci.dims[0];
 
         // Check if flux errors are provided
+        bool had_no_depth = depths.empty();
+        if (depths.empty() && itbl.read_column_info("depths", ci)) {
+            itbl.read_column("depths", depths);
+            depths = depths[filter_ids];
+        }
+
         if (depths.empty()) {
             vif_check(itbl.read_column_info("flux_err", ci),
-                "missing 'FLUX_ERR' column (or set depths=...)");
+                "missing 'FLUX_ERR' or 'DEPTHS' columns (please set depths=... manually)");
         } else {
             vif_check(depths.size() == cat_bands.size(), "mismatch in depths and bands");
             fitter.phot_err2 = sqr(mag2uJy(depths)/10.0);
@@ -79,8 +85,10 @@ public :
 
         // Overwrite config options for fitter
         {
-            if (depths.empty()) {
-                depths = replicate(99, cat_bands.size());
+            if (had_no_depth) {
+                if (depths.empty()) {
+                    depths = replicate(99, cat_bands.size());
+                }
                 opts.write(arg_list(depths));
             }
 
